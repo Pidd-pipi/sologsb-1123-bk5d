@@ -23,6 +23,10 @@ export interface Mission {
   purpose: MissionPurpose;
   droneModel: string;
   cameraModel: string;
+  /** 起降点经度（缺省编排时取首个航点） */
+  homeLng?: number;
+  /** 起降点纬度 */
+  homeLat?: number;
   /** 传感器宽度 mm */
   sensorWidth: number;
   /** 传感器高度 mm */

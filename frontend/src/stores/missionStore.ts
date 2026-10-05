@@ -62,6 +62,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   },
   async remove(id) {
     await db.missions.delete(id);
+    await db.sortiePlans.where('missionId').equals(id).delete();
     set({ items: get().items.filter((it) => it.id !== id) });
   },
 }));

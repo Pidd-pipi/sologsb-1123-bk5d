@@ -67,12 +67,12 @@ sologsb-1123/
         ├── index.css
         ├── vite-env.d.ts
         ├── router/index.tsx
-        ├── types/{mission,waypoint,flightline,imageasset}.ts
-        ├── stores/{mission,waypoint,asset}Store.ts
+        ├── types/{mission,waypoint,flightline,imageasset,sortie}.ts
+        ├── stores/{mission,waypoint,asset,sortie}Store.ts
         ├── components/common/{AmapRouteView,OverlapCalcPanel,AssetGrid,MissionCard}.tsx
-        ├── hooks/{useMissionFilter,useRouteMetrics}.ts
-        ├── pages/{MissionList,RoutePlanner,WaypointTable,AssetCatalog,CameraPreset}.tsx
-        └── utils/{db,geoCalc,amapLoader,id}.ts
+        ├── hooks/{useMissionFilter,useRouteMetrics,useSortiePlan}.ts
+        ├── pages/{MissionList,RoutePlanner,SortiePlanner,WaypointTable,AssetCatalog,CameraPreset}.tsx
+        └── utils/{db,geoCalc,amapLoader,id,sortie}.ts
 ```
 
 ## 页面与路由
@@ -81,6 +81,7 @@ sologsb-1123/
 | --- | --- | --- |
 | `/missions` | 任务台账：按测区/机型/飞行日期区间/状态筛选，显示航线数、预计张数与成果条目数 | Mission |
 | `/missions/:id/route` | 航线规划主视图：地图/网格绘制测区与航点折线，右侧参数面板改航高/航速/重叠率，实时回算 GSD、航线间距、预计张数与耗时 | Mission、Waypoint、FlightLine |
+| `/missions/:id/sorties` | 架次计划：按航点顺序编排架次（起降点出发，连续航段/悬停/回程计入 20 min 续航并留 20% 电量），单点超容量拒绝并写明原因；版本失效自动重算，已执行架次冻结，重算失败保留上一版 | SortiePlan、Waypoint、Mission |
 | `/missions/:id/waypoints` | 航点明细：经纬度粘贴导入、批量改高度、上下移与拖拽换序、单点视场预览 | Waypoint |
 | `/missions/:id/assets` | 成果影像编目：卡片格子列出片号/缩略图/GSD/质量，多选标记质量、定位到图、导出清单 | ImageAsset |
 | `/settings/camera` | 相机与传感器参数预设管理，选定预设后带入任务的焦距/像元/传感器 | CameraPreset、Mission |
@@ -94,11 +95,14 @@ sologsb-1123/
 - **航线间距** = 旁向幅宽 × (1 − 旁向重叠率)；**拍照间隔** = 航向幅宽 × (1 − 航向重叠率)
 - **预计张数** = Σ(每条航带长度 / 拍照间隔 + 1)；**预计耗时** = (总航程 / 航速 + 转弯与悬停附加) / 60；**电池组数** 按 20 min 有效续航向上取整
 - **测区面积**：经纬度投影到米制后用鞋带公式；**航带路径长度**：逐段球面近似距离累加
+- **架次编排（按航点顺序，不再按整条航线平均切）**：每架次从起降点出发，`合计 = 出航 + 连续航段 + 悬停 + 转弯 + 回程`，全部计入 **20 min 续航并留 20% 电量**（可用 16 min）；贪心顺序装箱，装不下就排下一架（每架都从起降点出发）；单点往返 + 悬停即超可用续航则**拒绝并写明原因**。见 `utils/sortie.ts`。
+- **架次版本与失效重算**：对「起降点 + 航点(序号/坐标/高度/航速/悬停/动作) + 相机参数」算输入指纹（FNV-1a）；航点高度、顺序或相机预设改变 → 指纹变化 → 架次立即失效重算（防抖）。**已执行架次冻结不改**；重算失败时保留上一版可执行计划，修正输入后自动继续。成果影像编目关联当时计划版本与架次号（`planVersion`/`sortieNo`）。
 
 ## 数据存储说明
 
-- 数据库名 `gbdronemap`，当前结构版本 **v2**（`localStorage['gbdronemap:db-version']` 记录）。
-- 六张表：`missions`（任务）、`waypoints`（航点）、`lines`（航线参数）、`assets`（成果影像条目）、`thumbs`（**缩略图单独建表**，dataUrl）、`presets`（相机预设）。
+- 数据库名 `gbdronemap`，当前结构版本 **v3**（`localStorage['gbdronemap:db-version']` 记录）。
+- 七张表：`missions`（任务，含起降点 `homeLng`/`homeLat`）、`waypoints`（航点）、`lines`（航线参数）、`assets`（成果影像条目，含 `planVersion`/`sortieNo` 成果归属）、`thumbs`（**缩略图单独建表**，dataUrl）、`presets`（相机预设）、`sortiePlans`（**架次计划**，按版本/状态/输入指纹索引）。
 - v1 → v2 迁移：为老任务补 `areaPolygon`/传感器默认值，为航线补 `updatedAt`/`batteryCount`，并新增索引。
+- v2 → v3 迁移：新增 `sortiePlans` 表（架次计划版本、架次快照、拒绝原因、失败标记），无需数据迁移。
 - 容器无状态、不挂载命名卷；清空站点数据即回到初始示范数据。
-- 首次打开灌入 2 个示范任务、5 个航点、2 条航线参数、6 条成果影像条目（含缩略图）与 3 套相机预设。
+- 首次打开灌入 2 个示范任务、5 个航点、2 条航线参数、6 条成果影像条目（含缩略图）、3 套相机预设与 2 套架次计划。

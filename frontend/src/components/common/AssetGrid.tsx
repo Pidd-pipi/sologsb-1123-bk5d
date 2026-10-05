@@ -82,6 +82,15 @@ export default function AssetGrid({
               <Typography.Text strong style={{ display: 'block', marginTop: 6 }}>
                 {asset.imageNo}
               </Typography.Text>
+              <div style={{ marginTop: 4 }}>
+                {asset.planVersion ? (
+                  <Tag color="blue">
+                    v{asset.planVersion} · 第 {asset.sortieNo} 架次
+                  </Tag>
+                ) : (
+                  <Tag>历史编目 · 未关联架次</Tag>
+                )}
+              </div>
               <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
                 GSD {asset.gsd} cm/px · 重叠 {asset.overlap}% · 倾角 {asset.tiltAngle}°
               </Typography.Text>

@@ -17,6 +17,7 @@ import { DownloadOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMissionStore } from '../stores/missionStore';
 import { useWaypointStore } from '../stores/waypointStore';
 import { useAssetStore } from '../stores/assetStore';
+import { useSortiePlan } from '../hooks/useSortiePlan';
 import AssetGrid from '../components/common/AssetGrid';
 import AmapRouteView from '../components/common/AmapRouteView';
 import { IMAGE_QUALITIES, type ImageAsset, type ImageAssetDraft, type ImageQuality } from '../types/imageasset';
@@ -34,6 +35,7 @@ export default function AssetCatalog() {
   const removeMany = useAssetStore((s) => s.removeMany);
 
   const mission = missions.find((m) => m.id === id);
+  const { plan: sortiePlan } = useSortiePlan(id);
   const missionAssets = useMemo(
     () => assets.filter((a) => a.missionId === id).sort((a, b) => a.imageNo.localeCompare(b.imageNo, 'zh-Hans-CN', { numeric: true })),
     [assets, id],
@@ -67,7 +69,7 @@ export default function AssetCatalog() {
     count: missionAssets.filter((a) => a.quality === quality).length,
   }));
 
-  /** 批量编目：按航点位置与当前航线 GSD 生成影像条目 */
+  /** 批量编目：按航点位置与当前航线 GSD 生成影像条目，并关联当时计划版本与架次号（成果归属） */
   const catalogFromWaypoints = async () => {
     if (!mission) return;
     if (missionWaypoints.length === 0) {
@@ -76,7 +78,16 @@ export default function AssetCatalog() {
     }
     const gsd = calcGsd(mission.pixelSize, missionWaypoints[0].altitude, mission.focalLength);
     const startNo = missionAssets.length + 1;
-    const drafts: ImageAssetDraft[] = missionWaypoints.map((w, index) => ({
+    // 成果归属：仅编目属于某一架次的航点，并关联当时计划版本与架次号
+    const wpSortie = new Map<string, number>();
+    sortiePlan?.sorties.forEach((s) => s.waypointIds.forEach((wid) => wpSortie.set(wid, s.sortieNo)));
+    const catalogable = missionWaypoints.filter((w) => wpSortie.has(w.id));
+    const skipped = missionWaypoints.length - catalogable.length;
+    if (catalogable.length === 0) {
+      setError(sortiePlan ? '当前计划没有可编目的架次（航点均被拒绝）' : '架次计划尚未生成，请稍后重试');
+      return;
+    }
+    const drafts: ImageAssetDraft[] = catalogable.map((w, index) => ({
       missionId: mission.id,
       imageNo: `IMG_${String(2000 + startNo + index)}`,
       lng: w.lng,
@@ -88,10 +99,16 @@ export default function AssetCatalog() {
       shotAt: Date.now() + index * 1000,
       quality: '合格' as ImageQuality,
       folder: `/${mission.missionNo}/100MEDIA`,
+      planVersion: sortiePlan?.version,
+      sortieNo: wpSortie.get(w.id),
     }));
     await addMany(drafts);
     setError('');
-    setToast(`已按 ${drafts.length} 个航点批量编目影像条目（GSD ${gsd} cm/px）`);
+    setToast(
+      `已按 ${drafts.length} 个航点批量编目（v${sortiePlan?.version ?? '—'} · 关联架次）${
+        skipped > 0 ? `，跳过 ${skipped} 个无法编排的航点` : ''
+      }`,
+    );
   };
 
   const locate = (asset: ImageAsset) => {

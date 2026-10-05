@@ -1,5 +1,6 @@
-import { Button, Card, Col, Descriptions, Divider, InputNumber, Row, Slider, Space, Statistic, Table, Tag, Typography, type TableProps } from 'antd';
+import { Button, Card, Col, Descriptions, Divider, InputNumber, Row, Slider, Space, Statistic, Typography } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
+import { Link } from 'react-router-dom';
 import type { RouteMetrics, RouteParams } from '../../hooks/useRouteMetrics';
 
 export interface OverlapCalcPanelProps {
@@ -8,21 +9,17 @@ export interface OverlapCalcPanelProps {
   metrics: RouteMetrics;
   onSave?: () => void;
   savedText?: string;
+  /** 任务 id：提供后显示「打开架次计划」入口 */
+  missionId?: string;
 }
-
-type SortieRow = { sortie: number; photos: number; durationMin: number };
-
-const columns: NonNullable<TableProps<SortieRow>['columns']> = [
-  { title: '架次', dataIndex: 'sortie', width: 70, render: (v: number) => `第 ${v} 架次` },
-  { title: '预计张数', dataIndex: 'photos', width: 100 },
-  { title: '预计耗时 min', dataIndex: 'durationMin', width: 120 },
-];
 
 /**
  * 重叠率 / 航高 / 航速表单与 GSD、航线间距、预计张数的实时回算面板。
  * 被航线规划页（/missions/:id/route）与相机预设页（/settings/camera）消费。
+ * 架次不再按整条航线平均切分，而是按航点顺序 + 20 min 续航留 20% 余量编排，
+ * 详见「架次计划」页。
  */
-export default function OverlapCalcPanel({ params, onChange, metrics, onSave, savedText }: OverlapCalcPanelProps) {
+export default function OverlapCalcPanel({ params, onChange, metrics, onSave, savedText, missionId }: OverlapCalcPanelProps) {
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }} data-testid="overlap-calc-panel">
       <Card size="small" title="航线参数">
@@ -105,24 +102,22 @@ export default function OverlapCalcPanel({ params, onChange, metrics, onSave, sa
           <Descriptions.Item label="航向幅宽">{metrics.coverageForward} m</Descriptions.Item>
           <Descriptions.Item label="旁向幅宽">{metrics.coverageSide} m</Descriptions.Item>
         </Descriptions>
-        <div style={{ marginTop: 6 }}>
-          {metrics.sorties.map((s) => (
-            <Tag key={s.sortie} color="blue">
-              第 {s.sortie} 架次 · {s.photos} 张 · {s.durationMin} min
-            </Tag>
-          ))}
-        </div>
+        <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }}>
+          架次按航点顺序编排（出航 + 连续航段 + 悬停 + 回程，20 min 续航留 20% 余量），不再按整条航线平均切分。
+        </Typography.Paragraph>
       </Card>
 
-      <Card size="small" title="多架次拆分">
-        <Table<SortieRow>
-          rowKey="sortie"
-          size="small"
-          columns={columns}
-          dataSource={metrics.sorties}
-          pagination={false}
-          locale={{ emptyText: '暂无架次拆分' }}
-        />
+      <Card size="small" title="架次计划（按航点顺序编排）">
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            从起降点出发，连续航段、悬停与回程全部计入续航并留 20% 电量；装不下排下一架，单点往返即超容量则拒绝并写明原因。
+          </Typography.Text>
+          {missionId ? (
+            <Button type="primary" ghost>
+              <Link to={`/missions/${missionId}/sorties`}>打开架次计划</Link>
+            </Button>
+          ) : null}
+        </Space>
       </Card>
     </Space>
   );

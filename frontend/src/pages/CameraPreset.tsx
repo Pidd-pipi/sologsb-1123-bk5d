@@ -218,6 +218,7 @@ export default function CameraPreset() {
             params={params}
             onChange={(patch) => setParams((prev) => ({ ...prev, ...patch }))}
             metrics={metrics}
+            missionId={missionId}
           />
         </Col>
       </Row>

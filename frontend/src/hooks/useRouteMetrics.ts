@@ -51,7 +51,6 @@ export interface RouteMetrics {
   lineCount: number;
   coverageForward: number;
   coverageSide: number;
-  sorties: { sortie: number; photos: number; durationMin: number }[];
 }
 
 /**
@@ -89,8 +88,6 @@ export function useRouteMetrics(missionId: string | undefined, params: RoutePara
       .reduce((s, w) => s + (w.action === '悬停' ? w.hoverSec : 0), 0);
     const estDuration = estimateDuration(pathLength, params.speed, points.length, hoverSecTotal);
     const batteryCount = estimateBatteries(estDuration);
-    const perSortie = 20;
-    const sortieCount = Math.max(1, Math.ceil(estDuration / perSortie));
 
     return {
       gsd,
@@ -105,11 +102,6 @@ export function useRouteMetrics(missionId: string | undefined, params: RoutePara
       lineCount,
       coverageForward: Math.round((sensorHeight * params.altitude) / (focalLength || 1) * 100) / 100,
       coverageSide: Math.round((sensorWidth * params.altitude) / (focalLength || 1) * 100) / 100,
-      sorties: Array.from({ length: sortieCount }, (_, i) => ({
-        sortie: i + 1,
-        photos: Math.ceil(estPhotos / sortieCount),
-        durationMin: Math.round((estDuration / sortieCount) * 10) / 10,
-      })),
     };
   }, [missions, allWaypoints, missionId, params]);
 }

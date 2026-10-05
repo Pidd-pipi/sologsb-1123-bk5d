@@ -2,11 +2,12 @@ import Dexie, { type Table } from 'dexie';
 import type { CameraPreset, Mission } from '../types/mission';
 import type { Waypoint } from '../types/waypoint';
 import type { FlightLine } from '../types/flightline';
+import type { SortiePlan } from '../types/sortie';
 import { makeThumbDataUrl, type AssetThumb, type ImageAsset } from '../types/imageasset';
 import { newId } from './id';
 
 export const DB_NAME = 'gbdronemap';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const LS_VERSION_KEY = 'gbdronemap:db-version';
 
 class DroneMapDB extends Dexie {
@@ -16,6 +17,7 @@ class DroneMapDB extends Dexie {
   assets!: Table<ImageAsset, string>;
   thumbs!: Table<AssetThumb, string>;
   presets!: Table<CameraPreset, string>;
+  sortiePlans!: Table<SortiePlan, string>;
 
   constructor() {
     super(DB_NAME);
@@ -55,6 +57,16 @@ class DroneMapDB extends Dexie {
             if (row.batteryCount === undefined) row.batteryCount = 1;
           });
       });
+    // v3：新增架次计划表（按航点顺序编排、带版本与电量余量）
+    this.version(3).stores({
+      missions: 'id, missionNo, areaName, droneModel, flightDate, status, purpose, createdAt',
+      waypoints: 'id, missionId, seq, action, altitude',
+      lines: 'id, missionId, lineNo, updatedAt',
+      assets: 'id, missionId, imageNo, quality, shotAt',
+      thumbs: 'id, missionId',
+      presets: 'id, name, cameraModel',
+      sortiePlans: 'id, missionId, version, status, inputHash, computedAt',
+    });
   }
 }
 
@@ -88,17 +100,20 @@ export async function saveFlightLine(line: FlightLine): Promise<void> {
   await db.lines.put(line);
 }
 
-/** 按航线参数把任务拆分为多架次（每架次按电池组数分组） */
-export function splitSorties(line: FlightLine): { sortie: number; photos: number; durationMin: number }[] {
-  const perSortie = 20; // 每组电池有效续航 20 min
-  const count = Math.max(1, Math.ceil(line.estDuration / perSortie));
-  const photosPer = Math.ceil(line.estPhotos / count);
-  const durationPer = Math.round((line.estDuration / count) * 10) / 10;
-  return Array.from({ length: count }, (_, i) => ({
-    sortie: i + 1,
-    photos: photosPer,
-    durationMin: durationPer,
-  }));
+/** 读取全部架次计划（按版本号倒序） */
+export async function loadSortiePlans(): Promise<SortiePlan[]> {
+  const rows = await db.sortiePlans.toArray();
+  return rows.sort((a, b) => b.version - a.version);
+}
+
+/** 保存 / 更新一版架次计划 */
+export async function saveSortiePlan(plan: SortiePlan): Promise<void> {
+  await db.sortiePlans.put(plan);
+}
+
+/** 删除某任务的全部架次计划 */
+export async function deleteSortiePlansByMission(missionId: string): Promise<void> {
+  await db.sortiePlans.where('missionId').equals(missionId).delete();
 }
 
 /** 首次进入灌入示范任务、航点、航线参数与成果影像条目 */
@@ -138,6 +153,8 @@ export async function ensureSeedData(): Promise<void> {
       sensorHeight: 13,
       focalLength: 12.29,
       pixelSize: 3.3,
+      homeLng: 116.3912,
+      homeLat: 39.9075,
       flightDate: '2024-09-12',
       pilot: '穆清和',
       status: '已飞行',
@@ -156,6 +173,8 @@ export async function ensureSeedData(): Promise<void> {
       sensorHeight: 24,
       focalLength: 35,
       pixelSize: 4.4,
+      homeLng: 121.4726,
+      homeLat: 31.2321,
       flightDate: '2024-09-20',
       pilot: '纪长风',
       status: '待飞行',

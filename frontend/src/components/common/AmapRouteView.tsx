@@ -18,9 +18,23 @@ export interface AmapRouteViewProps {
   highlightSeq?: number;
   /** 航点标注（用于单点视场预览） */
   withFov?: boolean;
+  /** 点选模式：新增航点 / 设置起降点 */
+  pickMode?: 'waypoint' | 'home';
+  /** 点击网格设置起降点时回调（pickMode='home' 时生效） */
+  onPickHome?: (lng: number, lat: number) => void;
+  /** 航点 id → 架次号，用于按架次着色 */
+  waypointSortie?: Map<string, number>;
 }
 
 const GRID_W = 760;
+
+/** 架次配色（按架次号循环） */
+const SORTIE_COLORS = ['#1d3557', '#e07a2f', '#2a9d8f', '#7b2cbf', '#c1121f', '#3a5a40'];
+
+function colorForSortie(sortieNo: number | undefined): string {
+  if (!sortieNo) return '#1d3557';
+  return SORTIE_COLORS[(sortieNo - 1) % SORTIE_COLORS.length];
+}
 
 /**
  * 高德地图封装：绘制测区多边形、航点折线、每航点视场矩形。
@@ -35,6 +49,9 @@ export default function AmapRouteView({
   onPickPoint,
   highlightSeq,
   withFov = true,
+  pickMode = 'waypoint',
+  onPickHome,
+  waypointSortie,
 }: AmapRouteViewProps) {
   const [amap, setAmap] = useState<AMapNamespace | null>(null);
   const [mode, setMode] = useState<'loading' | 'amap' | 'grid'>('loading');
@@ -122,6 +139,16 @@ export default function AmapRouteView({
         );
       }
     });
+    // 起降点：红色特殊标记
+    if (mission.homeLng !== undefined && mission.homeLat !== undefined) {
+      overlays.push(
+        new amap.Marker({
+          position: [mission.homeLng, mission.homeLat],
+          title: '起降点',
+          label: { content: '起降点', direction: 'top' },
+        }),
+      );
+    }
     overlays.forEach((o) => map.add(o));
     map.setFitView();
     return () => {
@@ -137,7 +164,9 @@ export default function AmapRouteView({
   // 本地 SVG 网格视图：等比投影，完全离线
   const projection = useMemo(() => {
     const poly: LngLat[] = mission && mission.areaPolygon.length >= 3 ? mission.areaPolygon : [[116.391, 39.907], [116.398, 39.907], [116.398, 39.903], [116.391, 39.903]];
-    const all: LngLat[] = [...poly, ...waypoints.map((w) => [w.lng, w.lat] as LngLat)];
+    const home: LngLat | undefined =
+      mission && mission.homeLng !== undefined && mission.homeLat !== undefined ? [mission.homeLng, mission.homeLat] : undefined;
+    const all: LngLat[] = [...poly, ...(home ? [home] : []), ...waypoints.map((w) => [w.lng, w.lat] as LngLat)];
     const lngs = all.map((p) => p[0]);
     const lats = all.map((p) => p[1]);
     const box: LngLat[] = [
@@ -211,14 +240,17 @@ export default function AmapRouteView({
         viewBox={`0 0 ${GRID_W} ${height}`}
         width="100%"
         height={height}
-        style={{ border: '1px solid #dbe1e8', borderRadius: 6, background: '#fbfdfe', cursor: onPickPoint ? 'crosshair' : 'default' }}
+        style={{ border: '1px solid #dbe1e8', borderRadius: 6, background: '#fbfdfe', cursor: onPickPoint || onPickHome ? 'crosshair' : 'default' }}
         onClick={(e) => {
-          if (!onPickPoint) return;
           const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
           const x = ((e.clientX - rect.left) / rect.width) * GRID_W;
           const y = ((e.clientY - rect.top) / rect.height) * height;
           const [lng, lat] = projection.projector.toLngLat(x, y);
-          onPickPoint(lng, lat);
+          if (pickMode === 'home') {
+            onPickHome?.(lng, lat);
+          } else {
+            onPickPoint?.(lng, lat);
+          }
         }}
       >
         <defs>
@@ -258,15 +290,41 @@ export default function AmapRouteView({
         {waypoints.map((w) => {
           const p = projection.projector.toXY([w.lng, w.lat]);
           const active = w.seq === highlightSeq;
+          const fill = active ? '#d93025' : colorForSortie(waypointSortie?.get(w.id));
           return (
             <g key={w.id}>
-              <circle cx={p.x} cy={p.y} r={active ? 8 : 5} fill={active ? '#d93025' : '#1d3557'} />
+              <circle cx={p.x} cy={p.y} r={active ? 8 : 5} fill={fill} stroke="#fff" strokeWidth={1}>
+                {waypointSortie?.get(w.id) ? <title>{`第 ${waypointSortie.get(w.id)} 架次 · #${w.seq}`}</title> : null}
+              </circle>
               <text x={p.x + 9} y={p.y - 6} fontSize="11" fill="#3c4652">
                 #{w.seq} {w.altitude}m {w.action}
               </text>
             </g>
           );
         })}
+
+        {mission && mission.homeLng !== undefined && mission.homeLat !== undefined
+          ? (() => {
+              const hp = projection.projector.toXY([mission.homeLng, mission.homeLat]);
+              return (
+                <g>
+                  <rect
+                    x={hp.x - 8}
+                    y={hp.y - 8}
+                    width={16}
+                    height={16}
+                    fill="#d93025"
+                    stroke="#fff"
+                    strokeWidth={1.5}
+                    transform={`rotate(45 ${hp.x} ${hp.y})`}
+                  />
+                  <text x={hp.x + 11} y={hp.y + 4} fontSize="11" fill="#d93025" fontWeight="bold">
+                    起降点
+                  </text>
+                </g>
+              );
+            })()
+          : null}
 
         <g>
           <line x1="24" y1={height - 22} x2="124" y2={height - 22} stroke="#333" strokeWidth="2" />
@@ -279,8 +337,14 @@ export default function AmapRouteView({
         <Tag color="blue">测区边界</Tag>
         <Tag color="orange">航点折线（{waypoints.length} 点）</Tag>
         <Tag>每航点视场矩形</Tag>
+        <Tag color="red">起降点</Tag>
+        {waypointSortie && waypointSortie.size > 0 ? <Tag color="purple">按架次着色</Tag> : null}
         <Tag color="gold">1 px ≈ {pxPerMeter > 0 ? (1 / pxPerMeter).toFixed(1) : '—'} m</Tag>
-        {onPickPoint ? <Tag color="green">点击网格可新增航点</Tag> : null}
+        {pickMode === 'home' && onPickHome ? (
+          <Tag color="green">点击网格设置起降点</Tag>
+        ) : onPickPoint ? (
+          <Tag color="green">点击网格可新增航点</Tag>
+        ) : null}
       </Space>
     </div>
   );
