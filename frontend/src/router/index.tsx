@@ -5,10 +5,12 @@ import { RocketOutlined } from '@ant-design/icons';
 import { useMissionStore } from '../stores/missionStore';
 import { useWaypointStore } from '../stores/waypointStore';
 import { useAssetStore } from '../stores/assetStore';
+import { useSortieStore } from '../stores/sortieStore';
 import { ensureSeedData, markDbVersion, readDbVersion } from '../utils/db';
 import { hasAmapKey } from '../utils/amapLoader';
 import MissionList from '../pages/MissionList';
 import RoutePlanner from '../pages/RoutePlanner';
+import SortiePlanner from '../pages/SortiePlanner';
 import WaypointTable from '../pages/WaypointTable';
 import AssetCatalog from '../pages/AssetCatalog';
 import CameraPreset from '../pages/CameraPreset';
@@ -26,6 +28,7 @@ function Shell() {
     () => [
       { key: '/missions', label: '任务台账' },
       { key: firstMissionId ? `/missions/${firstMissionId}/route` : '/missions', label: '航线规划' },
+      { key: firstMissionId ? `/missions/${firstMissionId}/sorties` : '/missions', label: '架次编排' },
       { key: firstMissionId ? `/missions/${firstMissionId}/waypoints` : '/missions', label: '航点明细' },
       { key: firstMissionId ? `/missions/${firstMissionId}/assets` : '/missions', label: '成果编目' },
       { key: '/settings/camera', label: '相机预设' },
@@ -37,8 +40,9 @@ function Shell() {
     const path = location.pathname;
     if (path.startsWith('/settings')) return '/settings/camera';
     if (path.endsWith('/route')) return items[1].key;
-    if (path.endsWith('/waypoints')) return items[2].key;
-    if (path.endsWith('/assets')) return items[3].key;
+    if (path.endsWith('/sorties')) return items[2].key;
+    if (path.endsWith('/waypoints')) return items[3].key;
+    if (path.endsWith('/assets')) return items[4].key;
     return '/missions';
   }, [location.pathname, items]);
 
@@ -71,6 +75,7 @@ function Shell() {
           <Route path="/" element={<Navigate to="/missions" replace />} />
           <Route path="/missions" element={<MissionList />} />
           <Route path="/missions/:id/route" element={<RoutePlanner />} />
+          <Route path="/missions/:id/sorties" element={<SortiePlanner />} />
           <Route path="/missions/:id/waypoints" element={<WaypointTable />} />
           <Route path="/missions/:id/assets" element={<AssetCatalog />} />
           <Route path="/settings/camera" element={<CameraPreset />} />
@@ -87,19 +92,20 @@ export default function AppRouter() {
   const loadMissions = useMissionStore((s) => s.load);
   const loadWaypoints = useWaypointStore((s) => s.load);
   const loadAssets = useAssetStore((s) => s.load);
+  const loadSorties = useSortieStore((s) => s.load);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       await ensureSeedData();
       markDbVersion();
-      await Promise.all([loadMissions(), loadWaypoints(), loadAssets()]);
+      await Promise.all([loadMissions(), loadWaypoints(), loadAssets(), loadSorties()]);
       if (alive) setReady(true);
     })();
     return () => {
       alive = false;
     };
-  }, [loadMissions, loadWaypoints, loadAssets]);
+  }, [loadMissions, loadWaypoints, loadAssets, loadSorties]);
 
   if (!ready) {
     return (

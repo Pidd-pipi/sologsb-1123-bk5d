@@ -2,11 +2,13 @@ import Dexie, { type Table } from 'dexie';
 import type { CameraPreset, Mission } from '../types/mission';
 import type { Waypoint } from '../types/waypoint';
 import type { FlightLine } from '../types/flightline';
+import type { Sortie, SortiePlan } from '../types/sortie';
 import { makeThumbDataUrl, type AssetThumb, type ImageAsset } from '../types/imageasset';
-import { newId } from './id';
+import { computeSortieFingerprint, planSorties, sortieBudgetSec } from './sortiePlan';
+import { newId, round } from './id';
 
 export const DB_NAME = 'gbdronemap';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const LS_VERSION_KEY = 'gbdronemap:db-version';
 
 class DroneMapDB extends Dexie {
@@ -16,6 +18,8 @@ class DroneMapDB extends Dexie {
   assets!: Table<ImageAsset, string>;
   thumbs!: Table<AssetThumb, string>;
   presets!: Table<CameraPreset, string>;
+  sortiePlans!: Table<SortiePlan, string>;
+  sorties!: Table<Sortie, string>;
 
   constructor() {
     super(DB_NAME);
@@ -55,6 +59,23 @@ class DroneMapDB extends Dexie {
             if (row.batteryCount === undefined) row.batteryCount = 1;
           });
       });
+    // v3：架次编排——新增架次计划/架次两张表；任务补起降点；成果条目补架次归属索引
+    this.version(3)
+      .stores({
+        sortiePlans: 'id, missionId, version, status, createdAt',
+        sorties: 'id, missionId, planVersion, sortieNo, status',
+        assets: 'id, missionId, imageNo, quality, shotAt, sortieId',
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table('missions')
+          .toCollection()
+          .modify((row: any) => {
+            if (!row.homePoint && Array.isArray(row.areaPolygon) && row.areaPolygon.length > 0) {
+              row.homePoint = row.areaPolygon[0];
+            }
+          });
+      });
   }
 }
 
@@ -88,20 +109,7 @@ export async function saveFlightLine(line: FlightLine): Promise<void> {
   await db.lines.put(line);
 }
 
-/** 按航线参数把任务拆分为多架次（每架次按电池组数分组） */
-export function splitSorties(line: FlightLine): { sortie: number; photos: number; durationMin: number }[] {
-  const perSortie = 20; // 每组电池有效续航 20 min
-  const count = Math.max(1, Math.ceil(line.estDuration / perSortie));
-  const photosPer = Math.ceil(line.estPhotos / count);
-  const durationPer = Math.round((line.estDuration / count) * 10) / 10;
-  return Array.from({ length: count }, (_, i) => ({
-    sortie: i + 1,
-    photos: photosPer,
-    durationMin: durationPer,
-  }));
-}
-
-/** 首次进入灌入示范任务、航点、航线参数与成果影像条目 */
+/** 首次进入灌入示范任务、航点、航线参数、架次计划与成果影像条目 */
 export async function ensureSeedData(): Promise<void> {
   const count = await db.missions.count();
   if (count > 0) return;
@@ -131,6 +139,7 @@ export async function ensureSeedData(): Promise<void> {
       name: '中心城区正射影像采集',
       areaName: '北京东城测区',
       areaPolygon: polygonA,
+      homePoint: polygonA[0],
       purpose: '正射',
       droneModel: 'Mavic 3E',
       cameraModel: 'DJI 4/3 CMOS 20MP',
@@ -149,6 +158,7 @@ export async function ensureSeedData(): Promise<void> {
       name: '滨江带状倾斜摄影',
       areaName: '上海浦东滨江带',
       areaPolygon: polygonB,
+      homePoint: polygonB[0],
       purpose: '带状',
       droneModel: 'M300 RTK',
       cameraModel: 'Zenmuse P1',
@@ -235,6 +245,44 @@ export async function ensureSeedData(): Promise<void> {
 
   const assets: ImageAsset[] = [];
   const thumbs: AssetThumb[] = [];
+
+  // 示范任务 A：按真实续航模型生成 v1 架次计划，架次 #1 已执行，成果条目关联该架次与版本
+  const wpsARecords = waypoints.filter((w) => w.missionId === missionA).sort((a, b) => a.seq - b.seq);
+  const plannedA = planSorties(missions[0], wpsARecords);
+  const firstPlanned = plannedA.sorties[0];
+  const budgetSec = sortieBudgetSec();
+  const sortieA1: Sortie = {
+    id: newId('sortie'),
+    missionId: missionA,
+    planVersion: 1,
+    sortieNo: 1,
+    waypointIds: firstPlanned?.waypointIds ?? wpsARecords.map((w) => w.id),
+    fromSeq: firstPlanned?.fromSeq ?? 1,
+    toSeq: firstPlanned?.toSeq ?? wpsARecords.length,
+    transitSec: round(firstPlanned?.transitSec ?? 0, 1),
+    flightSec: round(firstPlanned?.flightSec ?? 0, 1),
+    hoverSec: round(firstPlanned?.hoverSec ?? 0, 1),
+    photoSec: round(firstPlanned?.photoSec ?? 0, 1),
+    returnSec: round(firstPlanned?.returnSec ?? 0, 1),
+    totalSec: round(firstPlanned?.totalSec ?? 0, 1),
+    budgetSec,
+    status: '已执行',
+    createdAt: now - 30 * day,
+    executedAt: now - 30 * day + 3600 * 1000,
+  };
+  const sortiePlans: SortiePlan[] = [
+    {
+      id: newId('splan'),
+      missionId: missionA,
+      version: 1,
+      fingerprint: computeSortieFingerprint(missions[0], wpsARecords),
+      status: '可执行',
+      rejections: plannedA.rejections,
+      createdAt: now - 30 * day,
+    },
+  ];
+  const sorties: Sortie[] = [sortieA1];
+
   const qualities: ImageAsset['quality'][] = ['合格', '合格', '模糊', '合格', '过曝', '合格'];
   qualities.forEach((quality, index) => {
     const id = newId('asset');
@@ -253,6 +301,8 @@ export async function ensureSeedData(): Promise<void> {
       shotAt: now - 30 * day + index * 12000,
       quality,
       folder: `/DM-2024-018/100MEDIA`,
+      sortieId: sortieA1.id,
+      planVersion: 1,
     });
     thumbs.push({ id, missionId: missionA, dataUrl: makeThumbDataUrl(`IMG_${1001 + index}`, quality, lng, lat) });
   });
@@ -287,13 +337,19 @@ export async function ensureSeedData(): Promise<void> {
     },
   ];
 
-  // 六张表超过 Dexie 位置参数上限，改用数组形式声明事务范围
-  await db.transaction('rw', [db.missions, db.waypoints, db.lines, db.assets, db.thumbs, db.presets], async () => {
-    await db.missions.bulkPut(missions);
-    await db.waypoints.bulkPut(waypoints);
-    await db.lines.bulkPut(lines);
-    await db.assets.bulkPut(assets);
-    await db.thumbs.bulkPut(thumbs);
-    await db.presets.bulkPut(presets);
-  });
+  // 八张表超过 Dexie 位置参数上限，改用数组形式声明事务范围
+  await db.transaction(
+    'rw',
+    [db.missions, db.waypoints, db.lines, db.assets, db.thumbs, db.presets, db.sortiePlans, db.sorties],
+    async () => {
+      await db.missions.bulkPut(missions);
+      await db.waypoints.bulkPut(waypoints);
+      await db.lines.bulkPut(lines);
+      await db.assets.bulkPut(assets);
+      await db.thumbs.bulkPut(thumbs);
+      await db.presets.bulkPut(presets);
+      await db.sortiePlans.bulkPut(sortiePlans);
+      await db.sorties.bulkPut(sorties);
+    },
+  );
 }

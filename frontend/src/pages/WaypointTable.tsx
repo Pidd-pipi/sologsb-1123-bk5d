@@ -226,6 +226,9 @@ export default function WaypointTable() {
           <Link to={`/missions/${mission.id}/route`}>航线规划</Link>
         </Button>
         <Button type="link">
+          <Link to={`/missions/${mission.id}/sorties`}>架次编排</Link>
+        </Button>
+        <Button type="link">
           <Link to={`/missions/${mission.id}/assets`}>成果编目</Link>
         </Button>
         <Button danger size="small" onClick={() => clearMission(mission.id)}>

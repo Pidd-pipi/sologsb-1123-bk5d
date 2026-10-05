@@ -18,6 +18,8 @@ export interface AmapRouteViewProps {
   highlightSeq?: number;
   /** 航点标注（用于单点视场预览） */
   withFov?: boolean;
+  /** 起降点（架次编排用），SVG 与高德视图均绘制 */
+  homePoint?: LngLat;
 }
 
 const GRID_W = 760;
@@ -35,6 +37,7 @@ export default function AmapRouteView({
   onPickPoint,
   highlightSeq,
   withFov = true,
+  homePoint,
 }: AmapRouteViewProps) {
   const [amap, setAmap] = useState<AMapNamespace | null>(null);
   const [mode, setMode] = useState<'loading' | 'amap' | 'grid'>('loading');
@@ -96,6 +99,14 @@ export default function AmapRouteView({
         }),
       );
     }
+    if (homePoint) {
+      overlays.push(
+        new amap.Marker({
+          position: homePoint,
+          title: '起降点',
+        }),
+      );
+    }
     waypoints.forEach((w) => {
       overlays.push(
         new amap.Marker({
@@ -132,12 +143,12 @@ export default function AmapRouteView({
       }
       mapRef.current = null;
     };
-  }, [mode, amap, mission, waypoints, withFov]);
+  }, [mode, amap, mission, waypoints, withFov, homePoint]);
 
   // 本地 SVG 网格视图：等比投影，完全离线
   const projection = useMemo(() => {
     const poly: LngLat[] = mission && mission.areaPolygon.length >= 3 ? mission.areaPolygon : [[116.391, 39.907], [116.398, 39.907], [116.398, 39.903], [116.391, 39.903]];
-    const all: LngLat[] = [...poly, ...waypoints.map((w) => [w.lng, w.lat] as LngLat)];
+    const all: LngLat[] = [...poly, ...waypoints.map((w) => [w.lng, w.lat] as LngLat), ...(homePoint ? [homePoint] : [])];
     const lngs = all.map((p) => p[0]);
     const lats = all.map((p) => p[1]);
     const box: LngLat[] = [
@@ -147,7 +158,7 @@ export default function AmapRouteView({
       [Math.min(...lngs), Math.max(...lats)],
     ];
     return { poly, box, projector: createProjector(box, GRID_W, height) };
-  }, [mission, waypoints, height]);
+  }, [mission, waypoints, height, homePoint]);
 
   const pxPerMeter = useMemo(() => {
     const { box, projector } = projection;
@@ -198,6 +209,7 @@ export default function AmapRouteView({
 
   const polygonPath = projection.poly.map((p) => projection.projector.toXY(p)).map((p) => `${p.x},${p.y}`).join(' ');
   const linePath = waypoints.map((w) => projection.projector.toXY([w.lng, w.lat]));
+  const homeXY = homePoint ? projection.projector.toXY(homePoint) : null;
 
   return (
     <div data-testid="amap-fallback-grid">
@@ -268,6 +280,15 @@ export default function AmapRouteView({
           );
         })}
 
+        {homeXY ? (
+          <g>
+            <rect x={homeXY.x - 6} y={homeXY.y - 6} width={12} height={12} fill="#2f6f4f" stroke="#ffffff" strokeWidth={1.5} />
+            <text x={homeXY.x + 9} y={homeXY.y + 4} fontSize="11" fill="#2f6f4f">
+              起降点
+            </text>
+          </g>
+        ) : null}
+
         <g>
           <line x1="24" y1={height - 22} x2="124" y2={height - 22} stroke="#333" strokeWidth="2" />
           <text x="30" y={height - 28} fontSize="11" fill="#333">
@@ -279,6 +300,7 @@ export default function AmapRouteView({
         <Tag color="blue">测区边界</Tag>
         <Tag color="orange">航点折线（{waypoints.length} 点）</Tag>
         <Tag>每航点视场矩形</Tag>
+        {homePoint ? <Tag color="green">起降点</Tag> : null}
         <Tag color="gold">1 px ≈ {pxPerMeter > 0 ? (1 / pxPerMeter).toFixed(1) : '—'} m</Tag>
         {onPickPoint ? <Tag color="green">点击网格可新增航点</Tag> : null}
       </Space>

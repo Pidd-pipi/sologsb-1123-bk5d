@@ -23,6 +23,10 @@ export interface ImageAsset {
   quality: ImageQuality;
   /** 归档目录 */
   folder: string;
+  /** 编目时归属的架次 id（成果归属追溯） */
+  sortieId?: string;
+  /** 编目时的架次计划版本号（关联当时版本，计划失效后仍可追溯） */
+  planVersion?: number;
 }
 
 export type ImageAssetDraft = Omit<ImageAsset, 'id'>;

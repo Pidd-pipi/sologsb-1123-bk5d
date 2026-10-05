@@ -114,7 +114,7 @@ export default function OverlapCalcPanel({ params, onChange, metrics, onSave, sa
         </div>
       </Card>
 
-      <Card size="small" title="多架次拆分">
+      <Card size="small" title="多架次估算（按总耗时均分，仅参考；正式架次以「架次编排」为准）">
         <Table<SortieRow>
           rowKey="sortie"
           size="small"

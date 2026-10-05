@@ -6,6 +6,8 @@ export interface AssetGridProps {
   assets: ImageAsset[];
   thumbs: Record<string, string>;
   selectedIds: string[];
+  /** 架次 id → 展示标签（如「第1架次 · v1」），用于成果归属角标 */
+  sortieLabels?: Record<string, string>;
   onToggle: (id: string) => void;
   onToggleAll?: (ids: string[]) => void;
   onLocate?: (asset: ImageAsset) => void;
@@ -26,6 +28,7 @@ export default function AssetGrid({
   assets,
   thumbs,
   selectedIds,
+  sortieLabels,
   onToggle,
   onToggleAll,
   onLocate,
@@ -82,6 +85,11 @@ export default function AssetGrid({
               <Typography.Text strong style={{ display: 'block', marginTop: 6 }}>
                 {asset.imageNo}
               </Typography.Text>
+              {asset.sortieId && sortieLabels?.[asset.sortieId] ? (
+                <Tag color="geekblue" style={{ marginTop: 2 }}>
+                  {sortieLabels[asset.sortieId]}
+                </Tag>
+              ) : null}
               <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
                 GSD {asset.gsd} cm/px · 重叠 {asset.overlap}% · 倾角 {asset.tiltAngle}°
               </Typography.Text>

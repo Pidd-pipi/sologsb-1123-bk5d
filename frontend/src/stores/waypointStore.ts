@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { db } from '../utils/db';
 import { newId } from '../utils/id';
+import { scheduleSortieRecompute } from './sortieStore';
 import type { Waypoint, WaypointDraft } from '../types/waypoint';
 
 interface WaypointState {
@@ -29,17 +30,21 @@ export const useWaypointStore = create<WaypointState>((set, get) => ({
     const record: Waypoint = { ...draft, id: newId('wp') };
     await db.waypoints.put(record);
     set({ items: [...get().items, record] });
+    scheduleSortieRecompute(record.missionId);
     return record;
   },
   async addMany(drafts) {
     const records: Waypoint[] = drafts.map((d) => ({ ...d, id: newId('wp') }));
     await db.waypoints.bulkPut(records);
     set({ items: [...get().items, ...records] });
+    Array.from(new Set(records.map((r) => r.missionId))).forEach(scheduleSortieRecompute);
     return records;
   },
   async update(id, patch) {
     await db.waypoints.update(id, patch);
     set({ items: get().items.map((it) => (it.id === id ? { ...it, ...patch } : it)) });
+    const wp = get().items.find((it) => it.id === id);
+    if (wp) scheduleSortieRecompute(wp.missionId);
   },
   /** 与相邻航点交换序号 */
   async move(id, direction) {
@@ -63,15 +68,19 @@ export const useWaypointStore = create<WaypointState>((set, get) => ({
         return it;
       }),
     });
+    scheduleSortieRecompute(from.missionId);
   },
   async removeByMission(missionId) {
     const ids = get().items.filter((it) => it.missionId === missionId).map((it) => it.id);
     await db.waypoints.bulkDelete(ids);
     set({ items: get().items.filter((it) => it.missionId !== missionId) });
+    scheduleSortieRecompute(missionId);
   },
   async remove(id) {
+    const wp = get().items.find((it) => it.id === id);
     await db.waypoints.delete(id);
     set({ items: get().items.filter((it) => it.id !== id) });
+    if (wp) scheduleSortieRecompute(wp.missionId);
   },
   byMission(missionId) {
     return get()

@@ -20,6 +20,8 @@ export interface Mission {
   areaName: string;
   /** 测区边界经纬度数组 */
   areaPolygon: LngLat[];
+  /** 起降点（架次编排的去程/回程基准；缺省取测区边界首点） */
+  homePoint?: LngLat;
   purpose: MissionPurpose;
   droneModel: string;
   cameraModel: string;

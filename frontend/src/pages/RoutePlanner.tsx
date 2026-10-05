@@ -4,9 +4,10 @@ import { Alert, Button, Card, Col, Row, Space, Table, Tag, Typography, type Tabl
 import { useMissionStore } from '../stores/missionStore';
 import { useWaypointStore } from '../stores/waypointStore';
 import { useRouteMetrics, DEFAULT_ROUTE_PARAMS, type RouteParams } from '../hooks/useRouteMetrics';
+import { useSortieAutoRecomputeGuard, useSortiePlanData } from '../hooks/useSortiePlan';
 import AmapRouteView from '../components/common/AmapRouteView';
 import OverlapCalcPanel from '../components/common/OverlapCalcPanel';
-import { loadFlightLine, saveFlightLine, splitSorties } from '../utils/db';
+import { loadFlightLine, saveFlightLine } from '../utils/db';
 import { newId } from '../utils/id';
 import type { FlightLine } from '../types/flightline';
 import type { Waypoint } from '../types/waypoint';
@@ -34,6 +35,8 @@ export default function RoutePlanner() {
   const [savedText, setSavedText] = useState('');
   const [error, setError] = useState('');
   const metrics = useRouteMetrics(id, params);
+  const sortieData = useSortiePlanData(id);
+  useSortieAutoRecomputeGuard(id);
 
   useEffect(() => {
     if (!id) return;
@@ -131,6 +134,9 @@ export default function RoutePlanner() {
         <Tag color={missionWaypoints.length > 0 ? 'green' : 'default'}>航点 {missionWaypoints.length} 个</Tag>
         <div style={{ flex: 1 }} />
         <Button type="link">
+          <Link to={`/missions/${mission.id}/sorties`}>架次编排</Link>
+        </Button>
+        <Button type="link">
           <Link to={`/missions/${mission.id}/waypoints`}>航点明细</Link>
         </Button>
         <Button type="link">
@@ -166,28 +172,30 @@ export default function RoutePlanner() {
               pagination={false}
             />
           </Card>
-          <Card size="small" title="多架次拆分" style={{ marginTop: 14 }}>
-            <Space wrap size={6}>
-              {splitSorties({
-                id: 'preview',
-                missionId: mission.id,
-                lineNo: 1,
-                spacing: metrics.spacing,
-                photoInterval: metrics.photoInterval,
-                overlapForward: params.overlapForward,
-                overlapSide: params.overlapSide,
-                gsd: metrics.gsd,
-                estPhotos: metrics.estPhotos,
-                estDuration: metrics.estDuration,
-                batteryCount: metrics.batteryCount,
-                heading: params.heading,
-                updatedAt: Date.now(),
-              }).map((s) => (
-                <Tag key={s.sortie} color="blue">
-                  第 {s.sortie} 架次 · {s.photos} 张 · {s.durationMin} min
-                </Tag>
-              ))}
-            </Space>
+          <Card
+            size="small"
+            title="架次计划（按航点顺序编排 · 20 min × 80% 预算）"
+            style={{ marginTop: 14 }}
+            extra={<Link to={`/missions/${mission.id}/sorties`}>前往架次编排</Link>}
+          >
+            {sortieData.currentPlan ? (
+              <Space wrap size={6}>
+                <Tag color="purple">计划 v{sortieData.currentPlan.version}</Tag>
+                {sortieData.planSorties.map((s) => (
+                  <Tag key={s.id} color={s.status === '已执行' ? 'green' : 'blue'}>
+                    第{s.sortieNo}架次 · #{s.fromSeq}–#{s.toSeq} · {(s.totalSec / 60).toFixed(1)} min
+                  </Tag>
+                ))}
+                {sortieData.currentPlan.rejections.length > 0 ? (
+                  <Tag color="red">单点拒绝 {sortieData.currentPlan.rejections.length} 个</Tag>
+                ) : null}
+                {sortieData.pending ? <Tag color="gold">正在重算…</Tag> : null}
+              </Space>
+            ) : (
+              <Typography.Text type="secondary">
+                暂无可执行架次计划：请到「架次编排」查看重算结果与失败原因（长悬停/多段折返会按真实续航装架，不再按总耗时平均切分）。
+              </Typography.Text>
+            )}
           </Card>
         </Col>
         <Col span={9}>

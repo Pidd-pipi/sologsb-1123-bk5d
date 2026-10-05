@@ -230,6 +230,9 @@ export default function MissionList() {
                     <Button size="small" type="link" onClick={() => navigate(`/missions/${row.mission.id}/route`)}>
                       航线规划
                     </Button>
+                    <Button size="small" type="link" onClick={() => navigate(`/missions/${row.mission.id}/sorties`)}>
+                      架次编排
+                    </Button>
                     <Button size="small" type="link" onClick={() => navigate(`/missions/${row.mission.id}/waypoints`)}>
                       航点明细
                     </Button>

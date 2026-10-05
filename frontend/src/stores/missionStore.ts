@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { db } from '../utils/db';
 import { newId } from '../utils/id';
+import { scheduleSortieRecompute } from './sortieStore';
 import type { CameraPreset, Mission, MissionDraft, MissionStatus } from '../types/mission';
 
 interface MissionState {
@@ -27,7 +28,13 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     set({ items: rows, presets, loaded: true });
   },
   async add(draft) {
-    const record: Mission = { ...draft, id: newId('mission'), createdAt: Date.now() };
+    // 起降点缺省取测区边界首点，可在「架次编排」页修改
+    const record: Mission = {
+      ...draft,
+      homePoint: draft.homePoint ?? draft.areaPolygon[0],
+      id: newId('mission'),
+      createdAt: Date.now(),
+    };
     await db.missions.put(record);
     set({ items: [record, ...get().items] });
     return record;
@@ -35,6 +42,8 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   async update(id, patch) {
     await db.missions.update(id, patch);
     set({ items: get().items.map((it) => (it.id === id ? { ...it, ...patch } : it)) });
+    // 相机参数 / 起降点等变化会让架次立即失效重算（指纹一致时为空操作）
+    scheduleSortieRecompute(id);
   },
   async setStatus(id, status) {
     await get().update(id, { status });
